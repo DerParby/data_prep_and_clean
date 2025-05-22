@@ -11,7 +11,7 @@ from statistics import mean
 from classification.machine_learning import util
 from data import loadDataset
 from blocking import blocking_functions
-from blocking import blocking
+from blocking import blocking, blocking_key_selection
 from comparison import comparison
 from comparison import string_functions
 from classification import threshold_classification
@@ -63,27 +63,26 @@ rec_idB_col = 0
 # 11: phone
 # 12: email
 
-attrA_list = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11]
-attrB_list = [1, 2, 3, 4, 6, 7, 8, 9, 10, 11]
+attr_list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 # The list of blocking keys
 #
-blocking_funct_listA = [(blocking_functions.simple_blocking_key, 4), (blocking_functions.simple_blocking_key, 3)]
-blocking_funct_listB = [(blocking_functions.simple_blocking_key, 4), (blocking_functions.simple_blocking_key, 3)]
+blocking_phonetic_funct_list = [(blocking_functions.phonetic_blocking_key, i) for i in attr_list]
+blocking_simple_funct_list = [(blocking_functions.simple_blocking_key, i) for i in attr_list]
 
 # The list of comparison tuples (comparison function, attribute number in record A,
 # attribute number in record B)
 #
 exact_comp_funct_list = [(string_functions.exact_comp, 1, 1),  # First name
-                         (string_functions.exact_comp, 4, 4),  # Middle name
-                         (string_functions.exact_comp, 3, 3),  # Last name
-                         (string_functions.exact_comp, 8, 8),  # Suburb
-                         (string_functions.exact_comp, 10, 10),  # State
-                         ]
+                        (string_functions.exact_comp, 4, 4),  # Middle name
+                        (string_functions.exact_comp, 3, 3),  # Last name
+                        (string_functions.exact_comp, 8, 8),  # Suburb
+                        (string_functions.exact_comp, 10, 10),  # State
+                        ]
 approx_comp_funct_list = [(string_functions.jaro_comp, 1, 1),  # First name
-                          (string_functions.jaro_comp, 2, 2),  # Middle name
-                          (string_functions.jaro_comp, 3, 3),  # Last name
-                          ]
+                        (string_functions.jaro_comp, 2, 2),  # Middle name
+                        (string_functions.jaro_comp, 3, 3),  # Last name
+                        ]
 
 # =============================================================================
 #
@@ -92,44 +91,21 @@ approx_comp_funct_list = [(string_functions.jaro_comp, 1, 1),  # First name
 start_time = time.time()
 
 recA_dict = loadDataset.load_data_set(datasetA_name, rec_idA_col, \
-                                      attrA_list, headerA_line)
+                                    attr_list, headerA_line)
 recB_dict = loadDataset.load_data_set(datasetB_name, rec_idB_col, \
-                                      attrB_list, headerB_line)
+                                    attr_list, headerB_line)
 
-# Load data set of true matching pairs
-#
 true_match_set = loadDataset.load_truth_data(truthfile_name)
-weight_vector = [2.0, 1.0, 2.0, 2.0, 2.0, 1.0, 1.0]
-loading_time = time.time() - start_time
 
-# -----------------------------------------------------------------------------
-# Step 2: Block the datasets
 
 start_time = time.time()
 
-# Select one blocking technique
+rec = blocking_key_selection.select_blocking_keys(rec_dict_a=recA_dict, 
+                                                  rec_dict_b=recB_dict, 
+                                                  blocking_key_candidates=blocking_phonetic_funct_list, 
+                                                  ground_truth_pairs=true_match_set, 
+                                                  training_size=200,
+                                                  eps=0.1,
+                                                  max_block_size_ratio=0.5)
 
-# No blocking (all records in one block)
-#
-# blockA_dict = blocking.noBlocking(recA_dict)
-# blockB_dict = blocking.noBlocking(recB_dict)
-
-
-blockA_dict = blocking.conjunctive_block(recA_dict, blocking_funct_listA)
-blockB_dict = blocking.conjunctive_block(recB_dict, blocking_funct_listB)
-
-blocking_time = time.time() - start_time
-
-# Print blocking statistics
-#
-blocking.print_block_statistics(blockA_dict, blockB_dict)
-
-# -----------------------------------------------------------------------------
-# Step 3: Compare the candidate pairs
-
-start_time = time.time()
-sim_vec_dict = comparison.compare_blocks(blockA_dict, blockB_dict, \
-                                        recA_dict, recB_dict, \
-                                        approx_comp_funct_list)
-
-comparison_time = time.time() - start_time
+print(rec)

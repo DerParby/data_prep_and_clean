@@ -46,10 +46,13 @@ def select_blocking_keys(rec_dict_a, rec_dict_b, blocking_key_candidates, ground
     for index, bk in enumerate(blocking_key_candidates):
         if max_block_sizes[index] < max_block_size:
             new_filtered_candidates.append(blocking_key_candidates[index])
+            
+    print(f"Original # blocking keys: {len(blocking_key_candidates)}")
+    print(f"Remaining after filtering: {len(new_filtered_candidates)}")
     pf_vectors = generate_feature_vectors(rec_dict_a, rec_dict_b, positive_pairs, new_filtered_candidates)
     nf_vectors = generate_feature_vectors(rec_dict_a, rec_dict_b, negative_pairs, new_filtered_candidates)
     fisher_scores = compute_fisher_score(pf_vectors, nf_vectors)
-    print("fisher score: {}".format(fisher_scores))
+    print(f"fisher score: {fisher_scores}")
     candidates_score_list = list(zip([index for index in range(len(new_filtered_candidates))], fisher_scores.tolist()))
     candidates_score_list = sorted(candidates_score_list, key=lambda cand: cand[1], reverse=True)
     covered_rec_pairs = set()
@@ -129,98 +132,36 @@ def generate_samples(rec_dict_a, rec_dict_b, ground_truth_pairs, training_size):
     return positive_pairs, negative_pairs
 
 
-# TODO Implement the generation of vectors to compute the Fisher score.
 def generate_feature_vectors(rec_dict_a, rec_dict_b, pair_set, blocking_key_candidates):
     """
-    This method generates a 2-dimensional array based on a set of record pairs and a set of blocking functions.
-    Each row represents a record pair and each column is the evaluation of a blocking key. The entry (i, k) is 1, if
-    the k^th blocking key function generates the same blocking key values for the two records representing the i^th record
-    pair.
-
-    Parameters
-    ----------
-    rec_dict_a:
-        dictionary consisting of rec ids and values from data source A
-    rec_dict_b:
-        dictionary consisting of rec ids and values from data source B
-    pair_set:
-        set of record pairs
-    blocking_key_candidates:
-        list of blocking keys where each blocking key is a tuple with a blocking function
-    and an attribute
-
-    Returns
-    --------
-     blocking_vectors:
-       numpy array with shape (number of record pairs, number of blocking keys)
+    Generates a binary matrix where entry (i, j) = 1 if the j-th blocking key gives same value for the i-th pair.
     """
     feature_vector_array = np.zeros((len(pair_set), len(blocking_key_candidates)))
+    pair_list = list(pair_set)
 
-    # Iterate over each record pair
-    for i, (rec_id_a, rec_id_b) in enumerate(pair_set):
-        # Get the records from the dictionaries
-        record_a = rec_dict_a.get(rec_id_a)
-        record_b = rec_dict_b.get(rec_id_b)
-
-        # Iterate over each blocking key candidate
-        for j, (blocking_function, attribute) in enumerate(blocking_key_candidates):
-            # Get the values for the specified attribute
-            value_a = record_a.get(attribute) if record_a else None
-            value_b = record_b.get(attribute) if record_b else None
-
-            # Apply the blocking function to the values
-            blocking_value_a = blocking_function(value_a)
-            blocking_value_b = blocking_function(value_b)
-
-            # Check if the blocking values are the same
-            if blocking_value_a == blocking_value_b:
-                feature_vector_array[i, j] = 1  # Set to 1 if they match
-
+    for i, (id_a, id_b) in enumerate(pair_list):
+        rec_a = rec_dict_a[id_a]
+        rec_b = rec_dict_b[id_b]
+        for j, (bf, attr) in enumerate(blocking_key_candidates):
+            if bf(rec_a, attr) == bf(rec_b, attr):
+                feature_vector_array[i, j] = 1
     return feature_vector_array
 
 
 def compute_fisher_score(pf_vectors: ndarray, nf_vectors: ndarray):
     """
-    Computes the fisher scores for all blocking key candidates. The pf_vectors and pn_vectors
-    consist of vectors where each vector represents a record pair being a match (pf_vectors) or
-    a non-match(pn_vectors). The i-th position of a vector
-    is 1 if the blocking values bf(r[a]) and bf(s[a]) regarding the i-th blocking key
-    (attribute a, blocking function bf) are the same.
-
-    Parameters
-    ------------
-     pf_vectors:
-      numpy array of the dimension |positive_pairs| X |blocking_key_candidates|
-     nf_vectors:
-      numpy array of the dimension |negative_pairs| X |blocking_key_candidates|
-
-    Returns
-    --------
-      fisher_scores:
-       Fisher scores as numpy array with shape (|blocking_key_candidates|)
+    Computes the Fisher score for each blocking key.
     """
+    mean_pos = np.mean(pf_vectors, axis=0)
+    mean_neg = np.mean(nf_vectors, axis=0)
+    var_pos = np.var(pf_vectors, axis=0)
+    var_neg = np.var(nf_vectors, axis=0)
 
-        # Initialize the Fisher scores array
-    fisher_scores = np.zeros(pf_vectors.shape[1])
+    numerator = np.square(mean_pos - mean_neg)
+    denominator = var_pos + var_neg
 
-    # Compute Fisher scores for each blocking key candidate
-    for i in range(pf_vectors.shape[1]):
-        # Extract the i-th column for positive and negative vectors
-        pf_column = pf_vectors[:, i]
-        nf_column = nf_vectors[:, i]
-
-        # Calculate means
-        mu_1 = np.mean(pf_column)
-        mu_0 = np.mean(nf_column)
-
-        # Calculate variances
-        sigma_1_squared = np.var(pf_column, ddof=1)  # Sample variance
-        sigma_0_squared = np.var(nf_column, ddof=1)  # Sample variance
-
-        # Compute Fisher score
-        if sigma_1_squared + sigma_0_squared > 0:  # Avoid division by zero
-            fisher_scores[i] = (mu_1 - mu_0) ** 2 / (sigma_1_squared + sigma_0_squared)
-        else:
-            fisher_scores[i] = 0  # If both variances are zero, score is zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        fisher_scores = np.divide(numerator, denominator)
+        fisher_scores[np.isnan(fisher_scores)] = 0.0
 
     return fisher_scores
