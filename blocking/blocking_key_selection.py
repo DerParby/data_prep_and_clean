@@ -155,10 +155,30 @@ def generate_feature_vectors(rec_dict_a, rec_dict_b, pair_set, blocking_key_cand
        numpy array with shape (number of record pairs, number of blocking keys)
     """
     feature_vector_array = np.zeros((len(pair_set), len(blocking_key_candidates)))
+
+    # Iterate over each record pair
+    for i, (rec_id_a, rec_id_b) in enumerate(pair_set):
+        # Get the records from the dictionaries
+        record_a = rec_dict_a.get(rec_id_a)
+        record_b = rec_dict_b.get(rec_id_b)
+
+        # Iterate over each blocking key candidate
+        for j, (blocking_function, attribute) in enumerate(blocking_key_candidates):
+            # Get the values for the specified attribute
+            value_a = record_a.get(attribute) if record_a else None
+            value_b = record_b.get(attribute) if record_b else None
+
+            # Apply the blocking function to the values
+            blocking_value_a = blocking_function(value_a)
+            blocking_value_b = blocking_function(value_b)
+
+            # Check if the blocking values are the same
+            if blocking_value_a == blocking_value_b:
+                feature_vector_array[i, j] = 1  # Set to 1 if they match
+
     return feature_vector_array
 
 
-# TODO Implement the computation of the Fisher score for blocking keys
 def compute_fisher_score(pf_vectors: ndarray, nf_vectors: ndarray):
     """
     Computes the fisher scores for all blocking key candidates. The pf_vectors and pn_vectors
@@ -180,5 +200,27 @@ def compute_fisher_score(pf_vectors: ndarray, nf_vectors: ndarray):
        Fisher scores as numpy array with shape (|blocking_key_candidates|)
     """
 
+        # Initialize the Fisher scores array
     fisher_scores = np.zeros(pf_vectors.shape[1])
+
+    # Compute Fisher scores for each blocking key candidate
+    for i in range(pf_vectors.shape[1]):
+        # Extract the i-th column for positive and negative vectors
+        pf_column = pf_vectors[:, i]
+        nf_column = nf_vectors[:, i]
+
+        # Calculate means
+        mu_1 = np.mean(pf_column)
+        mu_0 = np.mean(nf_column)
+
+        # Calculate variances
+        sigma_1_squared = np.var(pf_column, ddof=1)  # Sample variance
+        sigma_0_squared = np.var(nf_column, ddof=1)  # Sample variance
+
+        # Compute Fisher score
+        if sigma_1_squared + sigma_0_squared > 0:  # Avoid division by zero
+            fisher_scores[i] = (mu_1 - mu_0) ** 2 / (sigma_1_squared + sigma_0_squared)
+        else:
+            fisher_scores[i] = 0  # If both variances are zero, score is zero
+
     return fisher_scores
